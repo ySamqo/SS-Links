@@ -34,8 +34,8 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/style.css" && env.ASSETS) {
-      return env.ASSETS.fetch(request);
+    if (url.pathname === "/style.css" && env.PUBLIC_ASSETS) {
+      return env.PUBLIC_ASSETS.fetch(request);
     }
 
     if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
