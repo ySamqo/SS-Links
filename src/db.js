@@ -44,7 +44,7 @@ function toPostgresSql(sql) {
 }
 
 async function setupSqlite() {
-  const dataDirectory = process.env.VERCEL
+  const dataDirectory = process.env.VERCEL || process.env.NETLIFY
     ? "/tmp"
     : path.join(__dirname, "..", "data");
 
