@@ -44,7 +44,12 @@ function toPostgresSql(sql) {
 }
 
 async function setupSqlite() {
-  const dataDirectory = process.env.VERCEL || process.env.NETLIFY
+  const isServerless =
+    process.env.VERCEL ||
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT;
+  const dataDirectory = isServerless
     ? "/tmp"
     : path.join(__dirname, "..", "data");
 
