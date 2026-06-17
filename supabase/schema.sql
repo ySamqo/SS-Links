@@ -6,6 +6,7 @@ create table if not exists smart_links (
   deeplink_url text,
   deeplink_enabled integer default 0,
   source text,
+  user_id bigint,
   is_active integer default 1,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
