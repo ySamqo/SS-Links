@@ -296,6 +296,13 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+async function ensureOwnerExists() {
+  const owner = await db.get("SELECT id FROM users WHERE role = ? LIMIT 1", ["owner"]);
+  if (!owner) {
+    await db.run("UPDATE users SET role = ? WHERE id = (SELECT MIN(id) FROM users)", ["owner"]);
+  }
+}
+
 function verifyPassword(password, storedHash) {
   const [salt, hash] = storedHash.split(":");
   if (!salt || !hash) return false;
@@ -419,7 +426,7 @@ app.post("/signup", async (req, res) => {
 
   try {
     const existingUser = await db.get("SELECT COUNT(*) AS count FROM users");
-    const role = existingUser.count === 0 ? "owner" : "user";
+    const role = Number(existingUser.count) === 0 ? "owner" : "user";
     await db.run(
       "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
       [username, hashPassword(password), role]
@@ -456,6 +463,8 @@ app.get("/test", (req, res) => {
 });
 
 app.get("/admin", requireLogin, async (req, res) => {
+  await ensureOwnerExists();
+
   const currentUser = await db.get("SELECT id, username, role FROM users WHERE id = ?", [req.userId]);
   const isOwner = currentUser && currentUser.role === "owner";
   const requestedTab = req.query.tab;
