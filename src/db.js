@@ -78,6 +78,9 @@ async function setupSqlite() {
   if (!smartLinkColumns.some((column) => column.name === "deeplink_enabled")) {
     await sqliteRun(sqliteDb, "ALTER TABLE smart_links ADD COLUMN deeplink_enabled INTEGER DEFAULT 0");
   }
+  if (!smartLinkColumns.some((column) => column.name === "user_id")) {
+    await sqliteRun(sqliteDb, "ALTER TABLE smart_links ADD COLUMN user_id INTEGER");
+  }
 
   await sqliteRun(sqliteDb, `
     CREATE TABLE IF NOT EXISTS users (
@@ -109,6 +112,12 @@ async function setupSqlite() {
   if (!owner) {
     await sqliteRun(sqliteDb, "UPDATE users SET role = 'owner' WHERE id = (SELECT MIN(id) FROM users)");
   }
+
+  await sqliteRun(sqliteDb, `
+    UPDATE smart_links
+    SET user_id = (SELECT id FROM users WHERE role = 'owner' ORDER BY id LIMIT 1)
+    WHERE user_id IS NULL
+  `);
 }
 
 async function setupPostgres() {
@@ -146,6 +155,7 @@ async function setupPostgres() {
   `);
 
   await pgPool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'");
+  await pgPool.query("ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS user_id INTEGER");
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS analytics_events (
@@ -162,6 +172,12 @@ async function setupPostgres() {
     SET role = 'owner'
     WHERE id = (SELECT MIN(id) FROM users)
       AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')
+  `);
+
+  await pgPool.query(`
+    UPDATE smart_links
+    SET user_id = (SELECT id FROM users WHERE role = 'owner' ORDER BY id LIMIT 1)
+    WHERE user_id IS NULL
   `);
 }
 
