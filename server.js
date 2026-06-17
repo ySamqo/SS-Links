@@ -320,10 +320,17 @@ function setSessionCookie(res, userId) {
 }
 
 app.get("/", async (req, res) => {
-  const links = await db.all(
-    "SELECT id, title, slug, source FROM smart_links WHERE is_active = ? ORDER BY id DESC",
-    [1]
-  );
+  const currentUserId = sessionUserId(req);
+  let currentUser = null;
+  let links = [];
+
+  if (currentUserId) {
+    await ensureOwnerExists();
+    currentUser = await db.get("SELECT id, username, role FROM users WHERE id = ?", [currentUserId]);
+    links = currentUser && currentUser.role === "owner"
+      ? await db.all("SELECT id, title, slug, source FROM smart_links WHERE is_active = ? ORDER BY id DESC", [1])
+      : await db.all("SELECT id, title, slug, source FROM smart_links WHERE is_active = ? AND user_id = ? ORDER BY id DESC", [1, currentUserId]);
+  }
 
   await Promise.all(links.map((link) => trackEvent(req, link.id, "view")));
 
@@ -338,7 +345,7 @@ app.get("/", async (req, res) => {
           <span class="arrow">&rarr;</span>
         </a>
       `).join("")
-    : '<p class="empty">No active links yet.</p>';
+    : '<p class="empty">Sign in to manage your links.</p>';
 
   res.send(page("My Links", `
     <header class="hero-nav">
@@ -469,35 +476,70 @@ app.get("/admin", requireLogin, async (req, res) => {
   const isOwner = currentUser && currentUser.role === "owner";
   const requestedTab = req.query.tab;
   const activeTab = requestedTab === "analytics" || (requestedTab === "users" && isOwner) ? requestedTab : "links";
-  const links = await db.all("SELECT * FROM smart_links ORDER BY id DESC");
+  const links = isOwner
+    ? await db.all("SELECT * FROM smart_links ORDER BY id DESC")
+    : await db.all("SELECT * FROM smart_links WHERE user_id = ? ORDER BY id DESC", [req.userId]);
   const users = isOwner
     ? await db.all("SELECT id, username, role, created_at FROM users ORDER BY id DESC")
     : [];
-  const totals = await db.get(`
-    SELECT
-      SUM(CASE WHEN event_type = 'view' THEN 1 ELSE 0 END) AS views,
-      SUM(CASE WHEN event_type = 'click' THEN 1 ELSE 0 END) AS clicks
-    FROM analytics_events
-  `);
-  const countryRows = await db.all(`
-    SELECT country, COUNT(*) AS total
-    FROM analytics_events
-    GROUP BY country
-    ORDER BY total DESC
-    LIMIT 8
-  `);
-  const linkStats = await db.all(`
-    SELECT
-      smart_links.title,
-      smart_links.slug,
-      smart_links.source,
-      SUM(CASE WHEN analytics_events.event_type = 'view' THEN 1 ELSE 0 END) AS views,
-      SUM(CASE WHEN analytics_events.event_type = 'click' THEN 1 ELSE 0 END) AS clicks
-    FROM smart_links
-    LEFT JOIN analytics_events ON analytics_events.smart_link_id = smart_links.id
-    GROUP BY smart_links.id
-    ORDER BY clicks DESC, views DESC, smart_links.id DESC
-  `);
+  const totals = isOwner
+    ? await db.get(`
+      SELECT
+        SUM(CASE WHEN event_type = 'view' THEN 1 ELSE 0 END) AS views,
+        SUM(CASE WHEN event_type = 'click' THEN 1 ELSE 0 END) AS clicks
+      FROM analytics_events
+    `)
+    : await db.get(`
+      SELECT
+        SUM(CASE WHEN analytics_events.event_type = 'view' THEN 1 ELSE 0 END) AS views,
+        SUM(CASE WHEN analytics_events.event_type = 'click' THEN 1 ELSE 0 END) AS clicks
+      FROM analytics_events
+      JOIN smart_links ON smart_links.id = analytics_events.smart_link_id
+      WHERE smart_links.user_id = ?
+    `, [req.userId]);
+  const countryRows = isOwner
+    ? await db.all(`
+      SELECT country, COUNT(*) AS total
+      FROM analytics_events
+      GROUP BY country
+      ORDER BY total DESC
+      LIMIT 8
+    `)
+    : await db.all(`
+      SELECT analytics_events.country, COUNT(*) AS total
+      FROM analytics_events
+      JOIN smart_links ON smart_links.id = analytics_events.smart_link_id
+      WHERE smart_links.user_id = ?
+      GROUP BY analytics_events.country
+      ORDER BY total DESC
+      LIMIT 8
+    `, [req.userId]);
+  const linkStats = isOwner
+    ? await db.all(`
+      SELECT
+        smart_links.title,
+        smart_links.slug,
+        smart_links.source,
+        SUM(CASE WHEN analytics_events.event_type = 'view' THEN 1 ELSE 0 END) AS views,
+        SUM(CASE WHEN analytics_events.event_type = 'click' THEN 1 ELSE 0 END) AS clicks
+      FROM smart_links
+      LEFT JOIN analytics_events ON analytics_events.smart_link_id = smart_links.id
+      GROUP BY smart_links.id
+      ORDER BY clicks DESC, views DESC, smart_links.id DESC
+    `)
+    : await db.all(`
+      SELECT
+        smart_links.title,
+        smart_links.slug,
+        smart_links.source,
+        SUM(CASE WHEN analytics_events.event_type = 'view' THEN 1 ELSE 0 END) AS views,
+        SUM(CASE WHEN analytics_events.event_type = 'click' THEN 1 ELSE 0 END) AS clicks
+      FROM smart_links
+      LEFT JOIN analytics_events ON analytics_events.smart_link_id = smart_links.id
+      WHERE smart_links.user_id = ?
+      GROUP BY smart_links.id
+      ORDER BY clicks DESC, views DESC, smart_links.id DESC
+    `, [req.userId]);
   const error = req.query.error
     ? `<p class="message error">${escapeHtml(req.query.error)}</p>`
     : "";
@@ -673,8 +715,8 @@ app.post("/admin/links", requireLogin, async (req, res) => {
 
   try {
     await db.run(
-      "INSERT INTO smart_links (title, slug, destination_url, deeplink_url, deeplink_enabled, source) VALUES (?, ?, ?, ?, ?, ?)",
-      [title, slug, destinationUrl, "", deeplinkEnabled, source]
+      "INSERT INTO smart_links (title, slug, destination_url, deeplink_url, deeplink_enabled, source, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [title, slug, destinationUrl, "", deeplinkEnabled, source, req.userId]
     );
     return res.redirect("/admin");
   } catch (error) {
@@ -686,15 +728,28 @@ app.post("/admin/links", requireLogin, async (req, res) => {
 });
 
 app.post("/admin/links/:id/delete", requireLogin, async (req, res) => {
-  await db.run("DELETE FROM smart_links WHERE id = ?", [req.params.id]);
+  const currentUser = await db.get("SELECT role FROM users WHERE id = ?", [req.userId]);
+  if (currentUser && currentUser.role === "owner") {
+    await db.run("DELETE FROM smart_links WHERE id = ?", [req.params.id]);
+  } else {
+    await db.run("DELETE FROM smart_links WHERE id = ? AND user_id = ?", [req.params.id, req.userId]);
+  }
   res.redirect("/admin");
 });
 
 app.post("/admin/links/:id/toggle", requireLogin, async (req, res) => {
-  await db.run(
-    "UPDATE smart_links SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    [req.params.id]
-  );
+  const currentUser = await db.get("SELECT role FROM users WHERE id = ?", [req.userId]);
+  if (currentUser && currentUser.role === "owner") {
+    await db.run(
+      "UPDATE smart_links SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [req.params.id]
+    );
+  } else {
+    await db.run(
+      "UPDATE smart_links SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+      [req.params.id, req.userId]
+    );
+  }
   res.redirect("/admin");
 });
 
