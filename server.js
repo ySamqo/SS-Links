@@ -5,6 +5,7 @@ const db = require("./src/db");
 const app = express();
 const port = 3000;
 const authSecret = process.env.AUTH_SECRET || "change-this-local-secret";
+const netlifyFunctionPath = "/.netlify/functions/app";
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.text({ type: "*/*" }));
@@ -74,6 +75,10 @@ function page(title, content, className = "") {
       </body>
     </html>
   `;
+}
+
+function postAction(path) {
+  return process.env.NETLIFY ? `${netlifyFunctionPath}${path}` : path;
 }
 
 function normalizeSlug(value = "") {
@@ -342,7 +347,7 @@ app.get("/signin", (req, res) => {
     <h1>Sign in</h1>
     <p>Sign in to manage your links.</p>
     ${error}
-    <form class="login-form" method="post" action="/signin" enctype="text/plain">
+    <form class="login-form" method="post" action="${postAction("/signin")}" enctype="text/plain">
       <label>Username<input name="username" autocomplete="username" required></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Sign in</button>
@@ -378,7 +383,7 @@ app.get("/signup", (req, res) => {
     <h1>Sign up</h1>
     <p>Create an account to manage your links.</p>
     ${error}
-    <form class="login-form" method="post" action="/signup" enctype="text/plain">
+    <form class="login-form" method="post" action="${postAction("/signup")}" enctype="text/plain">
       <label>Username<input name="username" autocomplete="username" required></label>
       <label>Password<input name="password" type="password" autocomplete="new-password" required></label>
       <button type="submit">Create account</button>
@@ -486,10 +491,10 @@ app.get("/admin", requireLogin, async (req, res) => {
           <td><span class="status ${link.is_active ? "active" : "inactive"}">${link.is_active ? "Active" : "Inactive"}</span></td>
           <td><a class="small-link" href="/go/${encodeURIComponent(link.slug)}">/go/${escapeHtml(link.slug)}</a></td>
           <td class="actions">
-            <form method="post" action="/admin/links/${link.id}/toggle">
+            <form method="post" action="${postAction(`/admin/links/${link.id}/toggle`)}">
               <button type="submit">${link.is_active ? "Deactivate" : "Activate"}</button>
             </form>
-            <form method="post" action="/admin/links/${link.id}/delete">
+            <form method="post" action="${postAction(`/admin/links/${link.id}/delete`)}">
               <button class="danger" type="submit">Delete</button>
             </form>
           </td>
@@ -527,7 +532,7 @@ app.get("/admin", requireLogin, async (req, res) => {
 
   const linksPanel = `
     ${error}
-    <form class="create-form tab-panel" method="post" action="/admin/links" enctype="text/plain">
+    <form class="create-form tab-panel" method="post" action="${postAction("/admin/links")}" enctype="text/plain">
       <label>Title<input name="title" required></label>
       <label>Link name<input name="slug" placeholder="instagram, tiktok, fanvue" required></label>
       <label>Destination URL<input name="destination_url" type="url" placeholder="https://example.com" required></label>
@@ -616,7 +621,7 @@ app.get("/admin", requireLogin, async (req, res) => {
       </div>
       <div class="admin-nav">
         <a class="pill" href="/">View public page</a>
-        <form method="post" action="/logout">
+        <form method="post" action="${postAction("/logout")}">
           <button type="submit">Log out</button>
         </form>
       </div>
