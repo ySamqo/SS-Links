@@ -6,7 +6,15 @@ const app = express();
 const port = 3000;
 const authSecret = process.env.AUTH_SECRET || "change-this-local-secret";
 
-app.use(express.urlencoded({ extended: false, type: "*/*" }));
+app.use(express.urlencoded({ extended: false }));
+app.use(express.text({ type: "*/*" }));
+app.use((req, res, next) => {
+  if (typeof req.body === "string") {
+    req.body = Object.fromEntries(new URLSearchParams(req.body));
+  }
+  if (!req.body) req.body = {};
+  next();
+});
 app.use(express.static("public"));
 
 function escapeHtml(value = "") {
