@@ -10,7 +10,19 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.text({ type: "*/*" }));
 app.use((req, res, next) => {
   if (typeof req.body === "string") {
-    req.body = Object.fromEntries(new URLSearchParams(req.body));
+    if (req.body.includes("&")) {
+      req.body = Object.fromEntries(new URLSearchParams(req.body));
+    } else {
+      req.body = Object.fromEntries(
+        req.body
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => {
+            const [key, ...value] = line.split("=");
+            return [key, value.join("=")];
+          })
+      );
+    }
   }
   if (!req.body) req.body = {};
   next();
@@ -330,7 +342,7 @@ app.get("/signin", (req, res) => {
     <h1>Sign in</h1>
     <p>Sign in to manage your links.</p>
     ${error}
-    <form class="login-form" method="post" action="/signin">
+    <form class="login-form" method="post" action="/signin" enctype="text/plain">
       <label>Username<input name="username" autocomplete="username" required></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Sign in</button>
@@ -366,7 +378,7 @@ app.get("/signup", (req, res) => {
     <h1>Sign up</h1>
     <p>Create an account to manage your links.</p>
     ${error}
-    <form class="login-form" method="post" action="/signup">
+    <form class="login-form" method="post" action="/signup" enctype="text/plain">
       <label>Username<input name="username" autocomplete="username" required></label>
       <label>Password<input name="password" type="password" autocomplete="new-password" required></label>
       <button type="submit">Create account</button>
@@ -515,7 +527,7 @@ app.get("/admin", requireLogin, async (req, res) => {
 
   const linksPanel = `
     ${error}
-    <form class="create-form tab-panel" method="post" action="/admin/links">
+    <form class="create-form tab-panel" method="post" action="/admin/links" enctype="text/plain">
       <label>Title<input name="title" required></label>
       <label>Link name<input name="slug" placeholder="instagram, tiktok, fanvue" required></label>
       <label>Destination URL<input name="destination_url" type="url" placeholder="https://example.com" required></label>
