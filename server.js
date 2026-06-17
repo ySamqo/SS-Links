@@ -133,6 +133,8 @@ function percent(value) {
 }
 
 function browserBypassPage(link) {
+  const targetUrl = JSON.stringify(link.destination_url);
+
   return `
     <!doctype html>
     <html lang="en">
@@ -168,15 +170,60 @@ function browserBypassPage(link) {
             animation: spin 0.8s linear infinite;
           }
 
-          a {
+          .ios-help {
+            display: none;
+          }
+
+          .steps {
+            margin: 22px 0;
+            padding: 0;
+            list-style: none;
+            text-align: left;
+          }
+
+          .steps li {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            margin: 12px 0;
+            padding: 14px;
+            border: 1px solid #eeeeee;
+            border-radius: 16px;
+            background: #fafafa;
+            color: #222222;
+          }
+
+          .steps strong {
+            display: grid;
+            place-items: center;
+            flex: 0 0 28px;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #111111;
+            color: #ffffff;
+            font-size: 14px;
+          }
+
+          a,
+          button {
             display: block;
+            width: 100%;
             margin-top: 18px;
             padding: 16px;
+            border: 0;
             border-radius: 14px;
             background: #111111;
             color: #ffffff;
+            font: inherit;
             font-weight: bold;
             text-decoration: none;
+            box-sizing: border-box;
+          }
+
+          button.secondary {
+            background: #f2f2f2;
+            color: #111111;
           }
 
           p {
@@ -191,17 +238,33 @@ function browserBypassPage(link) {
       </head>
       <body>
         <div class="box">
-          <div class="loader"></div>
-          <h1>Opening...</h1>
-          <p>If this stays inside Instagram, tap the button below.</p>
+          <div class="auto-open">
+            <div class="loader"></div>
+            <h1>Opening...</h1>
+            <p>We are trying to open this outside the in-app browser.</p>
+          </div>
+          <div class="ios-help">
+            <h1>Open in browser</h1>
+            <p>Instagram opened this inside its own browser. To continue outside Instagram:</p>
+            <ol class="steps">
+              <li><strong>1</strong><span>Tap the <b>•••</b> menu in the top corner.</span></li>
+              <li><strong>2</strong><span>Choose <b>Open in external browser</b> or <b>Open in Safari</b>.</span></li>
+              <li><strong>3</strong><span>If you do not see it, copy the link and paste it into Safari.</span></li>
+            </ol>
+          </div>
           <a id="open-browser" href="${escapeHtml(link.destination_url)}" target="_blank" rel="noopener">Open in browser</a>
+          <button class="secondary" id="copy-link" type="button">Copy link</button>
         </div>
         <script>
-          const targetUrl = ${JSON.stringify(link.destination_url)};
+          const targetUrl = ${targetUrl};
           const userAgent = navigator.userAgent || "";
           const isAndroid = /Android/i.test(userAgent);
+          const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
           const isInstagram = /Instagram/i.test(userAgent);
+          const autoOpen = document.querySelector(".auto-open");
+          const iosHelp = document.querySelector(".ios-help");
           const button = document.getElementById("open-browser");
+          const copyButton = document.getElementById("copy-link");
 
           function openAndroidBrowser() {
             const url = new URL(targetUrl);
@@ -221,9 +284,28 @@ function browserBypassPage(link) {
             window.location.href = intentUrl;
           }
 
+          function showManualInstructions() {
+            autoOpen.style.display = "none";
+            iosHelp.style.display = "block";
+          }
+
+          async function copyLink() {
+            try {
+              await navigator.clipboard.writeText(targetUrl);
+              copyButton.textContent = "Copied";
+            } catch {
+              window.prompt("Copy this link:", targetUrl);
+            }
+          }
+
           function tryOpenOutside() {
             if (isAndroid) {
               openAndroidBrowser();
+              return;
+            }
+
+            if (isIOS && isInstagram) {
+              showManualInstructions();
               return;
             }
 
@@ -232,12 +314,10 @@ function browserBypassPage(link) {
               return;
             }
 
-            const popup = window.open(targetUrl, "_blank", "noopener,noreferrer");
-            if (!popup) {
-              button.click();
-            }
+            showManualInstructions();
           }
 
+          copyButton.addEventListener("click", copyLink);
           setTimeout(tryOpenOutside, 150);
         </script>
       </body>
